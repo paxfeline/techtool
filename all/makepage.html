@@ -15,11 +15,18 @@
 
 <script>
 
-window.onbeforeunload = function() { return "Do you want to leave this page? Unsaved changed WILL BE LOST."; }
+window.onbeforeunload =
+	function()
+	{
+		var t = editor.getValue();
+	
+		if ( t != updateBaseline )
+			return "Do you want to leave this page? Unsaved changed WILL BE LOST.";
+	}
 
 var gUser;
 
-var cfile;
+var currentFile;
 
 function insertText( t )
 {
@@ -44,19 +51,23 @@ function loadText( t )
 	editor.focus();
 	//editor.getSelection().clearSelection();
 	
-	if ( cfile )
+	updateBaseline = t;
+	
+	if ( currentFile )
 	{
 		localSave();
-		lastSaved[ lastFile ] = t;
+		lastLocalSaved[ lastFile ] = t;
 		localSave();
 	}
 }
 
-var fileLoaded = false;
+var fileLoaded = true;
+
+var updateBaseline = "";
 
 function loadFile( e, fn ) // note - currently second param goes unused
 {
-	cfile = null;
+	currentFile = null;
 	if ( e.target.selectedIndex > 0 || fn )
 	{
 		fileLoaded = false;
@@ -67,7 +78,7 @@ function loadFile( e, fn ) // note - currently second param goes unused
 		if ( !fn ) fn = e.target.value;
 		xhr.onload = function()
 		{
-			cfile = fn;
+			currentFile = fn;
 			var t = xhr.responseText;
 			loadText( t );
 			fileLoaded = true;
@@ -79,9 +90,10 @@ function loadFile( e, fn ) // note - currently second param goes unused
 	}
 	else
 	{
+		loadText( "" );
 		document.getElementById( "setHomepageButton" ).disabled = true;
 		document.getElementById( "visitButton" ).disabled = true;
-		fileLoaded = true;
+		fileLoaded = true; // maybe unneeded?
 	}
 }
 
@@ -153,11 +165,11 @@ function saveAsFile( name, supressSelect )
 	
 		localStorage.removeItem( name );
 		localStorage.removeItem( "sfcsTechLastFile" );
-		cfile = "";
+		currentFile = "";
 	}
 }
 
-function saveFile( saveas )
+function saveFile( saveas, supsel )
 {
 	console.log( "save file" );
 	var n;
@@ -183,7 +195,7 @@ function saveFile( saveas )
 		n = fileSel.value;
 	console.log( "save " + n );
 	if ( n )
-		saveAsFile( n );
+		saveAsFile( n, supsel );
 }
 
 function setHomepage()
@@ -302,9 +314,16 @@ function setHomepage()
 
 function respondToFileList( list, e )
 {
-	if ( list.lastSel && list.lastSel != 0 && confirm( 'Save changes before loading new file?' ) )
-		saveAsFile( list.item(list.lastSel).value, true );
-	loadFile( e );
+	var t = editor.getValue();
+	
+	if ( t != updateBaseline && confirm( 'Save changes before loading new file?' ) )
+	{
+		if ( ! list.lastSel )
+			saveFile( true, true );
+		else
+			saveAsFile( list.item(list.lastSel).value, true );
+	}
+	loadFile( e ); // problem
 	list.lastSel = list.selectedIndex;
 }
 
@@ -338,45 +357,54 @@ function onSignIn(googleUser)
 		{
 			if (window.DEBUG) debugger;
 		
-		  fileselect.innerHTML = xhr.responseText;
+		  	fileselect.innerHTML = xhr.responseText;
+		  	
+		  	
 		  
 		  //console.log( "FS" );
 		  //console.log( fileselect.innerHTML );
-  
-		  /*var savedFile = localStorage.getItem( "sfcsTechLastFile" );
-		  if ( savedFile )
+  			
+  			// the following works, but is mindlessly over-zealous
+  			
+  		/*debugger;
+  		
+		  var ttbStr = localStorage.getItem( "TechTool Backups" );
+		  
+		  if ( ttbStr )
 		  {
-			var rs = localStorage.getItem( savedFile );
-			
-			if ( rs )
-			{
-				var o0 = JSON.parse( rs );
-				var o = o0.content;
-				if ( o0.user == curEmail )
+		  	var ttbObj = JSON.parse( ttbStr );
+		  	
+		  	if ( ttbObj.users[ curEmail ] )
+		  	{
+		  		var savedFile = ttbObj.users[ curEmail ].lastFile;
+		  		var fileHistory = ttbObj.users[ curEmail ].files[ savedFile ];
+		  		var lastVer = fileHistory[ fileHistory.length - 1 ];
+		  		
+		  		var restore = confirm( "Would you like to restore the last saved version of " + savedFile + "?" );
+				if ( restore )
 				{
-					var restore = confirm( "Would you like to restore the last saved version of " + savedFile + "?" );
-					if ( restore )
-					{
-						
-						loadText( o[ o.length - 1 ] );
-						
-						var fileSel = document.getElementById( "selectEl" );
+					loadText( lastVer );
+					
+					var fileSel = document.getElementById( "selectEl" );
 
-						for ( var i = 1; i < fileSel.length; i++ )
+					fileSel.selectedIndex = 0; // default, in case of error
+					for ( var i = 0; i < fileSel.length; i++ )
+					{
+						if ( fileSel.item(i).value == savedFile )
 						{
-							if ( fileSel.item(i).value == savedFile )
+							currentFile = savedFile;
+							fileSel.selectedIndex = i;
+							if ( i > 0 )
 							{
-								cfile = savedFile;
-								fileSel.selectedIndex = i;
 								document.getElementById( "setHomepageButton" ).disabled = false;
 								document.getElementById( "visitButton" ).disabled = false;
-								break;
 							}
+							break;
 						}
 					}
 				}
 			}
-		  }*/
+		}*/
 	};
 	xhr.send( 'gid=' + googleUser.getAuthResponse().id_token );
 	
@@ -384,16 +412,16 @@ function onSignIn(googleUser)
 	document.getElementById( "signInButton" ).style.display = "none";
 }
 
-var lastSaved = {};
+var lastLocalSaved = {};
 var lastFile;
 
 function localSave()
 {
 	if ( ! fileLoaded ) return;
 	
-	var file = cfile;
+	var file = currentFile;
 	
-	if ( ! file ) file = "<<untitled>>";
+	if ( ! file ) file = "[new file]";
 	
 	var localdb = localStorage.getItem( "TechTool Backups" );
 	
@@ -407,17 +435,17 @@ function localSave()
 	
 	var saveFlag = false;
 	
-	if ( cv != lastSaved[ file ] )
+	if ( cv != updateBaseline && cv != lastLocalSaved[ file ] )
 	{
 		if ( ! c.users[ curEmail ] )
-			c.users[ curEmail ] = { lastFile: null, files: [] };
+			c.users[ curEmail ] = { lastFile: null, files: {} };
 		
 		if ( c.users[ curEmail ].files[ file ] )
-			c.users[ curEmail ].file[ file ].push( cv );
+			c.users[ curEmail ].files[ file ].push( cv );
 		else
-			c.users[ curEmail ].file[ file ] = [ cv ];
+			c.users[ curEmail ].files[ file ] = [ cv ];
 		
-		lastSaved[ file ] = cv;
+		lastLocalSaved[ file ] = cv;
 		
 		saveFlag = true;
 	}
