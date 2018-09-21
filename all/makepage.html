@@ -1,0 +1,446 @@
+<html>
+<head>
+<title>Make webpage</title>
+
+<style>
+#helpers { width: 12em; position: fixed; right: 0; background-color: white; z-index: 1000; padding: 0.66em; }
+.helper:hover { text-decoration: underline; }
+</style>
+
+<meta name="google-signin-client_id" content="923306893053-2dv4s4tjfdjiip2g6fiujna78ltj7v06.apps.googleusercontent.com">
+
+<script src="https://apis.google.com/js/platform.js" async defer></script>
+
+<script src="src-noconflict/ace.js" type="text/javascript" charset="utf-8"></script>
+
+<script>
+
+window.onbeforeunload = function() { return "Do you want to leave this page? Unsaved changed WILL BE LOST."; }
+
+var gUser;
+
+var cfile;
+
+function insertText( t )
+{
+	editor.insert( t );
+}
+
+function insertImg()
+{
+	var r = prompt( "Enter image URL/address", "http://" );
+	if ( r ) insertText( "<img src=\"" + r + "\">" );
+}
+
+function insertLink()
+{
+	var r = prompt( "Enter link URL/address", "" );
+	if ( r ) insertText( "<a href=\"" + r + "\">" );
+}
+
+function loadText( t )
+{
+	editor.setValue( t, -1 );
+	editor.focus();
+	//editor.getSelection().clearSelection();
+	
+	if ( cfile )
+	{
+		localSave();
+		lastSaved[ lastFile ] = t;
+		localSave();
+	}
+}
+
+var fileLoaded = false;
+
+function loadFile( e, fn ) // note - currently second param goes unused
+{
+	cfile = null;
+	if ( e.target.selectedIndex > 0 || fn )
+	{
+		fileLoaded = false;
+		loadText( "[Loading...]" );
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', 'getfile.php');
+		xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+		if ( !fn ) fn = e.target.value;
+		xhr.onload = function()
+		{
+			cfile = fn;
+			var t = xhr.responseText;
+			loadText( t );
+			fileLoaded = true;
+		};
+		xhr.send( 'filename=' + fn + '&gid=' + gUser.getAuthResponse().id_token );
+		
+		document.getElementById( "setHomepageButton" ).disabled = false;
+		document.getElementById( "visitButton" ).disabled = false;
+	}
+	else
+	{
+		document.getElementById( "setHomepageButton" ).disabled = true;
+		document.getElementById( "visitButton" ).disabled = true;
+		fileLoaded = true;
+	}
+}
+
+function preview()
+{
+	var newWin = window.open( "", "webpage_preview" );
+	
+	newWin.document.open();
+	newWin.document.write( editor.getValue() );
+	newWin.document.close();
+}
+
+function visit()
+{
+	var fileSel = document.getElementById( "selectEl" );
+	
+	if ( fileSel.selectedIndex > 0 )
+		window.open( fileSel.value, "webpage_visit" );
+}
+
+function saveAsFile( name, supressSelect )
+{
+	if ( gUser )
+	{
+		console.log( "save file as " + name );
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', 'filewrite2.php');
+		xhr.onload = 
+			function()
+			{
+				var t = xhr.responseText;
+				console.log( "Save status: " + t );
+				
+				if ( t.substr( 0, 3 ) == "OK." )
+				{
+					var fileSel = document.getElementById( "selectEl" );
+					var found = false;
+					for ( var i = 1; i < fileSel.length; i++ )
+					{
+						if ( fileSel.item(i).value == name )
+						{
+							found = true;
+							break;
+						}
+					}
+				
+					if ( !found )
+					{
+						var newOpt = document.createElement( "option" );
+						newOpt.value = name;
+						newOpt.text = name;
+						fileSel.add( newOpt );
+						i = fileSel.length - 1;
+					}
+					if ( !supressSelect )
+						fileSel.selectedIndex = i;
+					
+					document.getElementById( "setHomepageButton" ).disabled = false;
+					document.getElementById( "visitButton" ).disabled = false;
+				}
+				else
+					alert( "Save status: " + t );
+			};
+		var formData = new FormData();
+		formData.append( 'filename', name );
+		formData.append( 'gid', gUser.getAuthResponse().id_token );
+		formData.append( 'filedata', editor.getValue() );
+		xhr.send( formData );
+	
+		localStorage.removeItem( name );
+		localStorage.removeItem( "sfcsTechLastFile" );
+		cfile = "";
+	}
+}
+
+function saveFile( saveas )
+{
+	console.log( "save file" );
+	var n;
+	var fileSel = document.getElementById( "selectEl" );
+	if ( fileSel.selectedIndex == 0 || saveas )
+	{
+		n = prompt( "Enter file name:", "" );
+		if ( n )
+		{
+			n = n.replace(/[^\w\s_.]/gi, "");
+			for ( var i = 1; i < fileSel.length; i++ )
+			{
+				if ( fileSel.item(i).value == n )
+				{
+					if ( !confirm( "Overwrite existing file?" ) )
+						n = null;
+					break;
+				}
+			}
+		}
+	}
+	else
+		n = fileSel.value;
+	console.log( "save " + n );
+	if ( n )
+		saveAsFile( n );
+}
+
+function setHomepage()
+{
+	if ( gUser )
+	{
+		console.log( "set homepage" );
+		var fileSel = document.getElementById( "selectEl" );
+		var xhr = new XMLHttpRequest();
+		xhr.open('POST', 'sethomepage.php');
+		xhr.onload = 
+			function()
+			{
+				var t = xhr.responseText;
+				console.log( "Homepage set (response: " + t + ")" );
+				
+				if ( t.substr( 0, 3 ) == "OK." )
+				{
+					var found = false;
+					for ( var i = 1; i < fileSel.length; i++ )
+					{
+						if ( fileSel.item(i).value == name )
+						{
+							found = true;
+							break;
+						}
+					}
+				
+					if ( !found )
+					{
+						var newOpt = document.createElement( "option" );
+						newOpt.value = name;
+						newOpt.text = name;
+						fileSel.add( newOpt );
+						i = fileSel.length - 1;
+					}
+					fileSel.selectedIndex = i;
+				}
+			};
+		var formData = new FormData();
+		formData.append( 'homepage', fileSel.value );
+		formData.append( 'gid', gUser.getAuthResponse().id_token );
+		xhr.send( formData );
+	}
+}
+
+</script>
+
+<!-- ACE code text editor -->
+
+<style type="text/css" media="screen">
+    #code
+    { 
+        width: 80em;
+        height: 50em;
+    }
+    
+    #signOutButton
+    {
+    	display: none;
+    }
+    
+    #selectEl, .g-signin2
+    {
+    	margin-bottom: 1em;
+    }
+</style>
+
+</head>
+<body onunload="localSave();">
+
+<div id="fileselect"></div>
+
+<input type="hidden" name="filedata" cols="100" rows="50"></textarea>
+
+<div class="g-signin2" data-onsuccess="onSignIn" id="signInButton"></div>
+
+
+<input type="button" value="Preview" onClick="preview();">
+
+<input type="button" value="Visit" onClick="visit();" id="visitButton"> ||
+
+<input type="button" value="Save" onClick="saveFile();">
+
+<input type="button" value="Set as Homepage" onClick="setHomepage();" id="setHomepageButton">
+
+<input type="button" value="Save As" onClick="saveFile( true );"> ||
+
+<input type="button" onclick="signOut();" id="signOutButton" value="Sign out">
+
+<div id="helpers">
+<h3>HTML helpers</h3>
+<div class="helper" onmousedown="insertText('<html>\n<head>\n<title>TITLE</title>\n<style>\n</style>\n</head>\n<body>\n\nCONTENT\n\n</body>\n</html>');">html base</div><br>
+<div class="helper" onmousedown="insertImg();">image</div>
+<div class="helper" onmousedown="insertLink();">link</div>
+</div>
+
+<script>
+  function signOut() {
+	  curEmail = null;
+    var auth2 = gapi.auth2.getAuthInstance();
+    auth2.signOut().then(function () {
+      console.log('User signed out.');
+      document.getElementById( "signOutButton" ).style.display = "none";
+      document.getElementById( "signInButton" ).style.display = "block";
+      fileselect.innerHTML = "";
+    });
+  }
+</script>
+
+</form>
+
+<pre id="code"></pre>
+
+<script>
+
+function respondToFileList( list, e )
+{
+	if ( list.lastSel && list.lastSel != 0 && confirm( 'Save changes before loading new file?' ) )
+		saveAsFile( list.item(list.lastSel).value, true );
+	loadFile( e );
+	list.lastSel = list.selectedIndex;
+}
+
+var editor = ace.edit("code");
+editor.setTheme("ace/theme/twilight");
+editor.getSession().setMode("ace/mode/html");
+editor.setBehavioursEnabled( false );
+//editor.setOptions( {enableBasicAutocompletion: false, enableLiveAutocompletion: false} );
+
+var fileselect = document.getElementById( "fileselect" );
+
+var curEmail = null;
+
+function onSignIn(googleUser)
+{
+	gUser = googleUser;
+  var profile = googleUser.getBasicProfile();
+  console.log('ID: ' + profile.getId()); // Do not send to your backend! Use an ID token instead.
+  console.log('Name: ' + profile.getName());
+  console.log('Image URL: ' + profile.getImageUrl());
+  console.log('Email: ' + profile.getEmail());
+  console.log( 'id_tok: ' + googleUser.getAuthResponse().id_token );
+  
+  curEmail = profile.getEmail();
+  
+	var xhr = new XMLHttpRequest();
+	xhr.open('POST', 'listuserpages.php');
+	xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+	xhr.onload =
+		function()
+		{
+			if (window.DEBUG) debugger;
+		
+		  fileselect.innerHTML = xhr.responseText;
+		  
+		  //console.log( "FS" );
+		  //console.log( fileselect.innerHTML );
+  
+		  /*var savedFile = localStorage.getItem( "sfcsTechLastFile" );
+		  if ( savedFile )
+		  {
+			var rs = localStorage.getItem( savedFile );
+			
+			if ( rs )
+			{
+				var o0 = JSON.parse( rs );
+				var o = o0.content;
+				if ( o0.user == curEmail )
+				{
+					var restore = confirm( "Would you like to restore the last saved version of " + savedFile + "?" );
+					if ( restore )
+					{
+						
+						loadText( o[ o.length - 1 ] );
+						
+						var fileSel = document.getElementById( "selectEl" );
+
+						for ( var i = 1; i < fileSel.length; i++ )
+						{
+							if ( fileSel.item(i).value == savedFile )
+							{
+								cfile = savedFile;
+								fileSel.selectedIndex = i;
+								document.getElementById( "setHomepageButton" ).disabled = false;
+								document.getElementById( "visitButton" ).disabled = false;
+								break;
+							}
+						}
+					}
+				}
+			}
+		  }*/
+	};
+	xhr.send( 'gid=' + googleUser.getAuthResponse().id_token );
+	
+	document.getElementById( "signOutButton" ).style.display = "inline";
+	document.getElementById( "signInButton" ).style.display = "none";
+}
+
+var lastSaved = {};
+var lastFile;
+
+function localSave()
+{
+	if ( ! fileLoaded ) return;
+	
+	var file = cfile;
+	
+	if ( ! file ) file = "<<untitled>>";
+	
+	var localdb = localStorage.getItem( "TechTool Backups" );
+	
+	var c = localdb;
+	if ( !c ) c = { users: {} };
+	else c = JSON.parse( c );
+
+	var cv = editor.getValue();
+	
+	if ( !cv ) return;
+	
+	var saveFlag = false;
+	
+	if ( cv != lastSaved[ file ] )
+	{
+		if ( ! c.users[ curEmail ] )
+			c.users[ curEmail ] = { lastFile: null, files: [] };
+		
+		if ( c.users[ curEmail ].files[ file ] )
+			c.users[ curEmail ].file[ file ].push( cv );
+		else
+			c.users[ curEmail ].file[ file ] = [ cv ];
+		
+		lastSaved[ file ] = cv;
+		
+		saveFlag = true;
+	}
+	
+	if ( lastFile != file )
+	{
+		lastFile = file;
+		c.users[ curEmail ].lastFile = file;
+		saveFlag = true;
+	}
+	
+	if ( saveFlag )
+	{
+		console.log( c );
+		localStorage.setItem( "TechTool Backups", JSON.stringify( c ) );
+	}
+}
+
+document.getElementById( "setHomepageButton" ).disabled = true;
+document.getElementById( "visitButton" ).disabled = true;
+
+setInterval( localSave, 10000 );
+
+</script>
+</body>
+</html>
