@@ -15,6 +15,12 @@
 
 <script>
 
+function WindowOverlay()
+{
+}
+
+
+
 window.onbeforeunload =
 	function()
 	{
@@ -47,6 +53,8 @@ function insertLink()
 
 function loadText( t )
 {
+	localSave();
+	
 	editor.setValue( t, -1 );
 	editor.focus();
 	//editor.getSelection().clearSelection();
@@ -54,11 +62,7 @@ function loadText( t )
 	updateBaseline = t;
 	
 	if ( currentFile )
-	{
-		localSave();
-		lastLocalSaved[ lastFile ] = t;
-		localSave();
-	}
+		lastLocalSaved[ currentFile ] = t;
 }
 
 var fileLoaded = true;
@@ -82,6 +86,7 @@ function loadFile( e, fn ) // note - currently second param goes unused
 			var t = xhr.responseText;
 			loadText( t );
 			fileLoaded = true;
+			updateShowHistoryButton();
 		};
 		xhr.send( 'filename=' + fn + '&gid=' + gUser.getAuthResponse().id_token );
 		
@@ -163,9 +168,23 @@ function saveAsFile( name, supressSelect )
 		formData.append( 'filedata', editor.getValue() );
 		xhr.send( formData );
 	
-		localStorage.removeItem( name );
-		localStorage.removeItem( "sfcsTechLastFile" );
-		currentFile = "";
+		// fix:
+		/*localStorage.removeItem( name );
+		localStorage.removeItem( "sfcsTechLastFile" );*/
+		
+		var c = localStorage.getItem( "TechTool Backups" );
+		if ( c ) c = JSON.parse( c );
+		
+		if ( c.users[ curEmail ].files[ name ] )
+		{
+			updateBaseline = editor.getValue();
+			delete c.users[ curEmail ].files[ name ];
+			delete c.users[ curEmail ].lastFile;
+		}
+		
+		localStorage.setItem( "TechTool Backups", JSON.stringify( c ) );
+		
+		updateShowHistoryButton();
 	}
 }
 
@@ -242,6 +261,47 @@ function setHomepage()
 	}
 }
 
+function showEditHistory()
+{
+	var localdb = localStorage.getItem( "TechTool Backups" );
+	
+	var c = localdb;
+	if ( c )
+	{
+		c = JSON.parse( c );
+		
+		var cf;
+		if ( currentFile )
+			cf = currentFile;
+		else
+			cf = "[new file]";
+		
+		if ( c.users[ curEmail ] && c.users[ curEmail ].files[ cf ] )
+		{
+			var overlayBase = document.createElement( "div" );
+			var listBase = document.createElement( "div" );
+			
+			c.users[ curEmail ].files[ cf ].forEach(
+				function ( el )
+				{
+					var listEl = document.createElement( "div" );
+					var listText = document.createElement( "div" );
+					listText.innerHTML = el;
+					listEl.appendChild( listText );
+					var openBtn = document.createElement( "div" );
+					openBtn.innerHTML = "[open]";
+					listEl.appendChild( openBtn );
+					listBase.appendChild( listEl );
+				} );
+			
+			overlayBase.appendChild( listBase );
+			document.body.appendChild( overlayBase );
+			
+			//alert( JSON.stringify( c.users[ curEmail ].files[ cf ] ) );
+		}
+	}
+}
+
 </script>
 
 <!-- ACE code text editor -->
@@ -280,9 +340,11 @@ function setHomepage()
 
 <input type="button" value="Save" onClick="saveFile();">
 
+<input type="button" value="Save As" onClick="saveFile( true );"> ||
+
 <input type="button" value="Set as Homepage" onClick="setHomepage();" id="setHomepageButton">
 
-<input type="button" value="Save As" onClick="saveFile( true );"> ||
+<input type="button" value="Show Edit History" onClick="showEditHistory();" id="showHistoryButton"> ||
 
 <input type="button" onclick="signOut();" id="signOutButton" value="Sign out">
 
@@ -323,7 +385,7 @@ function respondToFileList( list, e )
 		else
 			saveAsFile( list.item(list.lastSel).value, true );
 	}
-	loadFile( e ); // problem
+	loadFile( e );
 	list.lastSel = list.selectedIndex;
 }
 
@@ -366,7 +428,7 @@ function onSignIn(googleUser)
   			
   			// the following works, but is mindlessly over-zealous
   			
-  		/*debugger;
+  		/*debugger;*/
   		
 		  var ttbStr = localStorage.getItem( "TechTool Backups" );
 		  
@@ -374,13 +436,13 @@ function onSignIn(googleUser)
 		  {
 		  	var ttbObj = JSON.parse( ttbStr );
 		  	
-		  	if ( ttbObj.users[ curEmail ] )
+		  	if ( ttbObj.users[ curEmail ] && ttbObj.users[ curEmail ].lastFile )
 		  	{
 		  		var savedFile = ttbObj.users[ curEmail ].lastFile;
 		  		var fileHistory = ttbObj.users[ curEmail ].files[ savedFile ];
 		  		var lastVer = fileHistory[ fileHistory.length - 1 ];
 		  		
-		  		var restore = confirm( "Would you like to restore the last saved version of " + savedFile + "?" );
+		  		var restore = confirm( "Restore the last saved version of " + savedFile + "?" );
 				if ( restore )
 				{
 					loadText( lastVer );
@@ -399,12 +461,25 @@ function onSignIn(googleUser)
 								document.getElementById( "setHomepageButton" ).disabled = false;
 								document.getElementById( "visitButton" ).disabled = false;
 							}
+							updateShowHistoryButton();
 							break;
 						}
 					}
 				}
+				else
+				{
+					// if the user doesn't load the 'lastFile', remove it
+					// (so the question isn't asked again)
+		
+					if ( ttbObj.users[ curEmail ].lastFile )
+						delete ttbObj.users[ curEmail ].lastFile;
+		
+					localStorage.setItem( "TechTool Backups", JSON.stringify( ttbObj ) );
+		
+					updateShowHistoryButton();
+				}
 			}
-		}*/
+		}
 	};
 	xhr.send( 'gid=' + googleUser.getAuthResponse().id_token );
 	
@@ -431,9 +506,7 @@ function localSave()
 
 	var cv = editor.getValue();
 	
-	if ( !cv ) return;
-	
-	var saveFlag = false;
+	if ( ! cv ) return;
 	
 	if ( cv != updateBaseline && cv != lastLocalSaved[ file ] )
 	{
@@ -447,21 +520,35 @@ function localSave()
 		
 		lastLocalSaved[ file ] = cv;
 		
-		saveFlag = true;
-	}
-	
-	if ( lastFile != file )
-	{
-		lastFile = file;
 		c.users[ curEmail ].lastFile = file;
-		saveFlag = true;
-	}
-	
-	if ( saveFlag )
-	{
-		console.log( c );
+		
+		//console.log( c );
 		localStorage.setItem( "TechTool Backups", JSON.stringify( c ) );
 	}
+	
+	updateShowHistoryButton();
+}
+
+function updateShowHistoryButton()
+{
+	var localdb = localStorage.getItem( "TechTool Backups" );
+	
+	var disabled = true;
+	
+	var cf;
+	if ( currentFile )
+		cf = currentFile;
+	else
+		cf = "[new file]";
+	
+	if ( localdb )
+	{
+		localdb = JSON.parse( localdb );
+		
+		disabled = ! ( localdb.users[ curEmail ] && localdb.users[ curEmail ].files[ cf ] );
+	}
+	
+	document.getElementById( "showHistoryButton" ).disabled = disabled;
 }
 
 document.getElementById( "setHomepageButton" ).disabled = true;
